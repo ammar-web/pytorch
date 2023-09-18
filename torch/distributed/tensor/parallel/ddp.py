@@ -1,10 +1,10 @@
-from typing import Any, List, Tuple
+from typing import Any, List, Optional, Tuple
 
+import torch as torch
 import torch.nn as nn
-from torch.distributed.tensor.parallel._data_parallel_utils import (
-    _flatten_tensor,
-    _unflatten_tensor,
-)
+from torch.distributed._tensor import DTensor as DistributedTensor
+from torch.distributed._tensor.placement_types import DTensorSpec
+
 
 __all__ = ["pre_dp_module_transform"]
 
@@ -30,6 +30,26 @@ def _update_module_param(param_list: List[Tuple[nn.Module, str, nn.Parameter]]):
         assert hasattr(parent_module, module_path)
         delattr(parent_module, module_path)
         setattr(parent_module, module_path, t)
+
+
+def _flatten_tensor(
+    tensor: torch.Tensor,
+) -> Tuple[torch.Tensor, Optional[DTensorSpec]]:
+    if isinstance(tensor, DistributedTensor):
+        tensor._local_tensor.requires_grad_()
+        return tensor._local_tensor, tensor._spec
+    return tensor, None
+
+
+def _unflatten_tensor(tensor: torch.Tensor, spec: DTensorSpec) -> torch.Tensor:
+    result = DistributedTensor.from_local(
+        tensor,
+        spec.mesh,
+        spec.placements,
+        run_check=False,
+    )
+
+    return result
 
 
 def _reconstruct_dtensor(module: nn.Module, _input: Any):
